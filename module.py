@@ -12,7 +12,7 @@ class LeNet(nn.Module):
         self.MaxPool1 = nn.MaxPool2d(kernel_size=2)
         self.conv2 = nn.Conv2d(in_channels=6, out_channels=16, kernel_size=5)
         self.MaxPool2 = nn.MaxPool2d(kernel_size=2)
-        self.fc1 = nn.Linear(in_features=16*5*5, out_features=120)
+        self.fc1 = nn.Linear(in_features=16*4*4, out_features=120)
         self.fc2 = nn.Linear(in_features=120, out_features=84)
         self.fc3 = nn.Linear(in_features=84, out_features=10)
 
@@ -41,7 +41,7 @@ class AlexNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4, padding=2),
+            nn.Conv2d(in_channels=1, out_channels=96, kernel_size=11, stride=4, padding=2),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2),
             nn.Conv2d(in_channels=96, out_channels=256, kernel_size=5, stride=1, padding=2),
@@ -170,3 +170,12 @@ class UNet(nn.Module):
         x = self.up4(x, x1)
         logits = self.outc(x)
         return logits
+    
+# impletation of VGG
+
+def vgg_block(num_convs, in_channels, out_channels):
+    layers = []
+    for _ in range(num_convs):
+        layers.append(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1))
+        layers.append(nn.ReLU())
+        
