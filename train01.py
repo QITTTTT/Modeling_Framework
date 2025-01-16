@@ -7,7 +7,8 @@ from torch.utils.data import DataLoader
 
 
 transform = transforms.Compose([
-    transforms.Resize((224,224)),
+    transforms.Resize((96,96)),
+#    transforms.Resize((224,224)),
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,))
     ])
@@ -64,12 +65,11 @@ def train_LeNet(net, train_iter, test_iter, num_epochs, lr, device):
                 num += X.shape[0]
                 accuracy += (y_hat.argmax(dim=1) == y).sum().item()
         test_acc = evaluate_accuracy(net, data_iter=test_iter)
-        print(sum_loss)
         print(f"loss: {(sum_loss / num):.3f}, train_acc: {(accuracy/num):.3f}, test_acc: {test_acc}:.3f")
 
 if __name__ == '__main__':
-    lr, num_epochs = 0.09, 10
-    net = module.AlexNet()
+    lr, num_epochs = 0.1, 10
+    net = module.GoogLeNet
     train_LeNet(net, train_loader, test_loader, num_epochs, lr, 'cuda:0')
 
         
