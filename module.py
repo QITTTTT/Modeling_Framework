@@ -1,8 +1,9 @@
 import torch
+import util
 import torch.nn as nn
 import torch.nn.functional as F
 
-#TODO:Impletation of LeNet
+#TODO:Implementation of LeNet
 
 class LeNet(nn.Module):
 
@@ -34,7 +35,7 @@ class LeNet(nn.Module):
             num_features *= s
         return num_features
     
-#TODO:Impletation of AlexNet
+#TODO:Implementation of AlexNet
 
 class AlexNet(nn.Module):
 
@@ -70,7 +71,7 @@ class AlexNet(nn.Module):
         output = self.classifier(feature.view(x.shape[0], -1))
         return output
     
-#TODO:Impletation of U-Net
+#TODO:Implementation of U-Net
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
@@ -171,7 +172,7 @@ class UNet(nn.Module):
         logits = self.outc(x)
         return logits
     
-# impletation of VGG
+# implementation of VGG
 
 def vgg_block(num_convs, in_channels, out_channels):
     layers = []
@@ -198,7 +199,7 @@ def vgg(conv_arch):
         nn.Linear(4096, 10)
         )
 
-# impletation of NiN
+# implementation of NiN
 def nin_block(in_channles, out_channels, kernel_size, strides, padding):
     return nn.Sequential(
         nn.Conv2d(in_channles, out_channels, kernel_size, strides, padding), nn.ReLU(),
@@ -219,7 +220,7 @@ NiN = nn.Sequential(
     nn.Flatten()
     )
 
-# impletation of GoogLeNet
+# implementation of GoogLeNet
 class Inception(nn.Module):
     # c1 -- c4是每条路径的输出通道数
     def __init__(self, in_channels, c1, c2, c3, c4, **kwargs):
@@ -266,3 +267,188 @@ b5 = nn.Sequential(Inception(832, 256, (160, 320), (32, 128), 128),
 
 GoogLeNet = nn.Sequential(b1, b2, b3, b4, b5, nn.Linear(1024, 10))
 
+
+# impletation of Batch Normalization of LeNet
+BNLeNet = nn.Sequential(
+    nn.Conv2d(1, 6, kernel_size=5), util.BatchNorm(6, num_dims=4), nn.Sigmoid(),
+    nn.AvgPool2d(kernel_size=2, stride=2),
+    nn.Conv2d(6, 16, kernel_size=5), util.BatchNorm(16, num_dims=4), nn.Sigmoid(),
+    nn.AvgPool2d(kernel_size=2, stride=2), nn.Flatten(),
+    nn.Linear(16*4*4, 120), util.BatchNorm(120, num_dims=2), nn.Sigmoid(),
+    nn.Linear(120, 84), util.BatchNorm(84, num_dims=2), nn.Sigmoid(),
+    nn.Linear(84, 10))
+
+#implementation of ResNet
+class Residual(nn.Module):
+    def __init__(self, num_channels, use_1x1conv=False, stride=1):
+        super().__init__()
+        self.conv1 = nn.LazyConv2d(num_channels, kernel_size=3, padding=1, stride=stride)
+        self.conv2 = nn.LazyConv2d(num_channels, kernel_size=3, padding=1)
+        if use_1x1conv:
+            self.conv3 = nn.LazyConv2d(num_channels, kernel_size=1, stride=stride)
+        else:
+            self.conv3 = None
+        
+        self.bn1 = nn.LazyBatchNorm2d()
+        self.bn2 = nn.LazyBatchNorm2d()
+
+    def forward(self, X):
+        Y = F.relu(self.bn1(self.conv1(X)))
+        Y = self.bn2(self.conv2(Y))
+        if self.conv3:
+            X = self.conv3(X)
+        Y += X
+
+        return F.relu(Y)
+        
+class ResNet(nn.Module):
+
+    def b1(self):
+        return nn.Sequential(
+            nn.LazyConv2d(64, kernel_size=7, stride=2, padding=3),
+            nn.LazyBatchNorm2d(), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+
+    def resnet_block(self,  num_residuals, num_channels, first_block=False):
+        blk = nn.Sequential()
+        for i in range(num_residuals):
+            if i == 0 and not first_block:
+                blk.append(Residual(num_channels, use_1x1conv=True, stride=2))
+            else:
+                blk.append(Residual(num_channels))
+        return blk
+
+    def __init__(self, arch, num_classes=10):
+        super().__init__()
+        self.net = nn.Sequential(self.b1())
+        for i, b in enumerate(arch):
+            self.net.add_module(f'b{i+2}', self.resnet_block(*b, first_block=(i==0)))
+        self.net.add_module('last',nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(),
+            nn.LazyLinear(num_classes)))
+
+class ResNet18(ResNet):
+    def __init__(self, num_classes=10):
+        super().__init__(((2, 64), (2, 128), (2, 256), (2, 512)), num_classes)
+
+    def forward(self, X):
+        return self.net(X)
+
+#implementation of ResNextBlock
+class ResNextBlock(nn.Module):
+    def __init__(self, num_channels, groups, bot_mul, use_1x1conv=False, stride=1):
+        super().__init__()
+        bot_channels = int(round(num_channels * bot_mul))
+        self.conv1 = nn.LazyConv2d(bot_channels, kernel_size=1, stride=1)
+        self.conv2 = nn.LazyConv2d(bot_channels, kernel_size=3, stride=stride, padding=1, groups=bot_channels // groups)
+        self.conv3 = nn.LazyConv2d(num_channels, kernel_size=1, stride=1)
+
+        self.bn1 = nn.LazyBatchNorm2d()
+        self.bn2 = nn.LazyBatchNorm2d()
+        self.bn3 = nn.LazyBatchNorm2d()
+        if use_1x1conv:
+            self.conv4 = nn.LazyConv2d(num_channels, kernel_size=1, stride=stride)
+            self.bn4 = nn.LazyBatchNorm2d()
+        else:
+            self.conv4 = None
+        
+    def forward(self, X):
+        Y = F.relu(self.bn1(self.conv1(X)))
+        Y = F.relu(self.bn2(self.conv2(Y)))
+        Y = self.bn3(self.conv3(Y))
+        if self.conv4:
+            X = self.bn4(self.conv4(X))
+        Y += X
+        return F.relu(Y)
+
+#implementation of DenseNet
+def conv_block(num_channels):
+    return nn.Sequential(
+        nn.LazyBatchNorm2d(), nn.ReLU(),
+        nn.LazyConv2d(num_channels, kernel_size=3, padding=1))
+
+class DenseBlock(nn.Module):
+    def __init__(self, num_convs, num_channels):
+        super().__init__()
+        self.net = nn.Sequential()
+        for i in range(num_convs):
+            self.net.append(conv_block(num_channels))
+
+    def forward(self, X):
+        for block in self.net:
+            Y = block(X)
+            X = torch.cat((X, Y), dim=1)
+        return X
+
+def transition_block(num_channels):
+    return nn.Sequential(
+        nn.LazyBatchNorm2d(), nn.ReLU(),
+        nn.LazyConv2d(num_channels, kernel_size=1),
+        nn.AvgPool2d(kernel_size=2, stride=2)
+        )
+
+class DenseNet(nn.Module):
+
+    def b1(self):
+        return nn.Sequential(
+            nn.LazyConv2d(64, kernel_size=7, stride=2, padding=3),
+            nn.LazyBatchNorm2d(), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+
+
+    def __init__(self, num_channels=64, growth_rate=32, arch=(4, 4, 4, 4), num_classes=10):
+        super().__init__()
+        self.net = nn.Sequential(self.b1())
+        for i, num_convs in enumerate(arch):
+            self.net.add_module(f'dense_blk{i+1}', DenseBlock(num_convs,
+                                                          growth_rate))
+            # The number of output channels in the previous dense block
+            num_channels += num_convs * growth_rate
+            # A transition layer that halves the number of channels is added
+            # between the dense blocks
+            if i != len(arch) - 1:
+                num_channels //= 2
+                self.net.add_module(f'tran_blk{i+1}', transition_block(
+                    num_channels))
+        self.net.add_module('last', nn.Sequential(
+            nn.LazyBatchNorm2d(), nn.ReLU(),
+            nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(),
+            nn.LazyLinear(num_classes)))
+        
+    def forward(self, X):
+        return self.net(X)
+    
+#implementation of generic design
+class AnyNet(nn.Module):
+    def stem(self, num_channels):
+        return nn.Sequential(
+            nn.LazyConv2d(num_channels, kernel_size=3, stride=2, padding=1),
+            nn.LazyBatchNorm2d(), nn.ReLU())
+
+    def stage(self, depth, num_channels, groups, bot_mul):
+        blk = []
+        for i in range(depth):
+            if i == 0:
+                blk.append(ResNextBlock(num_channels, groups, bot_mul, use_1x1conv=True, stride=2))
+            else:
+                blk.append(ResNextBlock(num_channels, groups, bot_mul))
+        return nn.Sequential(*blk)
+    def __init__(self, arch, stem_channels, num_classes=10):
+        super().__init__()
+        self.net = nn.Sequential(self.stem(stem_channels))
+        for i, s in enumerate(arch):
+            self.net.add_module(f'stage{i+1}', self.stage(*s))
+        self.net.add_module('head', nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(), 
+            nn.LazyLinear(num_classes)))
+    def forward(self, X):
+        return self.net(X)
+
+class RegNetX32(AnyNet):
+    def __init__(self, num_classes=10):
+        stem_channels, groups, bot_mul = 32, 16, 1
+        depths, channels = (4, 6), (32, 80)
+        super().__init__(
+            ((depths[0], channels[0], groups, bot_mul),
+             (depths[1], channels[1], groups, bot_mul)),
+            stem_channels,  num_classes)

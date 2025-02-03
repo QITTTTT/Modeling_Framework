@@ -40,7 +40,7 @@ def evaluate_accuracy(net, data_iter, device=None):
             total += y.size(0) 
     return correct/total
 
-def train_LeNet(net, train_iter, test_iter, num_epochs, lr, device):
+def train(net, train_iter, test_iter, num_epochs, lr, device):
     def init_weights(m):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
             nn.init.xavier_uniform_(m.weight)
@@ -68,8 +68,8 @@ def train_LeNet(net, train_iter, test_iter, num_epochs, lr, device):
         print(f"loss: {(sum_loss / num):.3f}, train_acc: {(accuracy/num):.3f}, test_acc: {test_acc}:.3f")
 
 if __name__ == '__main__':
-    lr, num_epochs = 0.1, 10
-    net = module.GoogLeNet
-    train_LeNet(net, train_loader, test_loader, num_epochs, lr, 'cuda:0')
+    lr, num_epochs = 0.001, 10
+    net = module.RegNetX32()
+    train(net, train_loader, test_loader, num_epochs, lr, 'cuda:0')
 
         
