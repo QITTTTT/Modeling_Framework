@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import os
-import module
+import tongyq24Files.code.Modeling_Framework.DNN as DNN
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
@@ -69,7 +69,7 @@ def train(net, train_iter, test_iter, num_epochs, lr, device):
 
 if __name__ == '__main__':
     lr, num_epochs = 0.001, 10
-    net = module.RegNetX32()
+    net = DNN.RegNetX32()
     train(net, train_loader, test_loader, num_epochs, lr, 'cuda:0')
 
         
