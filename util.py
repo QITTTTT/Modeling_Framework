@@ -280,7 +280,7 @@ class Module(nn.Module, HyperParameters):
             x = self.trainer.epoch + 1
             n = self.trainer.num_val_batches / \
                 self.plot_valid_per_epoch
-        self.board.draw(x, numpy(torch.to(value, util.cpu())),
+        self.board.draw(x, value.to(util.cpu()).detach().numpy(),
                         ('train_' if train else 'val_') + key,
                         every_n=int(n))    
     
@@ -401,7 +401,7 @@ class Trainer(HyperParameters):
     def prepare_batch(self, batch):
         """Defined in :numref:`sec_use_gpu`"""
         if self.gpus:
-            batch = [torch.to(a, self.gpus[0]) for a in batch]
+            batch = [a.to(self.gpus[0]) for a in batch]
         return batch
     
 
