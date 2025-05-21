@@ -15,7 +15,7 @@ import sys
 import numpy
 from torch.nn import functional as F
 import pandas as pd
-
+import re
 
 
 
@@ -420,6 +420,65 @@ class Trainer(HyperParameters):
         if norm > grad_clip_val:
             for param in params:
                 param.grad[:] *= grad_clip_val / norm
+
+
+class Vocab:
+    """Vocabulary for text"""
+    def __init__(self, tokens=[], min_freq=0, reserved_tokens=[]):
+        if tokens and isinstance(tokens[0], list):
+            tokens = [token for line in tokens for token in line]
+        
+        counter = collections.Counter(tokens)
+        self.token_freqs = sorted(counter.items(), key=lambda x: x[1], reverse=True)
+
+        self.idx_to_token = list(sorted(set(['<unk>'] + reserved_tokens +
+                                            [token for token, freq in self.token_freqs if freq >= min_freq])))
+        self.token_to_idx = {token: idx for idx, token in enumerate(self.idx_to_token)}
+
+    def __len__(self):
+        return len(self.idx_to_token)
+    
+    def __getitem__(self, tokens):
+        if not isinstance(tokens, (list, tuple)):
+            return self.token_to_idx.get(tokens, self.unk)
+        return [self.__getitem__(token) for token in tokens]
+    def to_tokens(self, indices):
+        if hasattr(indices, '__len__') and len(indices) > 1:
+            return [self.idx_to_token[int(index)] for index in indices]
+        return self.idx_to_token[indices]
+    @property
+    def unk(self):
+        return self.token_to_idx['<unk>']
+
+class TimeMachine(DataModule):
+    """The Time Machine dataset"""
+    def _download(self):
+        fname = util.download(util.DATA_URL + 'timemachine.txt', '/home/tongyq24/tongyq24Files/code/Modeling_Framework/data', sha1_hash='090b5e7e70c295757f55df93cb0a180b9691891a')
+
+        with open(fname) as f:
+            return f.read()
+    def _preprocess(self, text):
+        return re.sub('[^A-Za-z]+', ' ', text).lower()
+    
+    def _tokenize(self, text):
+        return list(text)
+    def build(self, raw_text, vocab=None):
+        tokens = self._tokenize(self._preprocess(raw_text))
+        if vocab is None: vocab = Vocab(tokens)
+        corpus = [vocab[token] for token in tokens]
+        return corpus, vocab
+
+    def __init__(self, batch_size, num_steps, num_train=10000, num_val=5000):
+        super(TimeMachine, self).__init__()
+        self.save_hyperparameters()
+        corpus, self.vocab = self.build(self._download())
+        array = torch.tensor([corpus[i:i+num_steps+1] for i in range(len(corpus) - num_steps)])
+        self.X, self.Y = array[:,:-1], array[:,1:]
+
+    def get_dataloader(self, train):
+        idx = slice(0, self.num_train) if train else slice(
+            self.num_train, self.num_train + self.num_val)
+        return self.get_tensorloader([self.X, self.Y], train, idx)
     
 class Classifier(Module):
 
@@ -447,3 +506,58 @@ class Classifier(Module):
         for layer in self.net:
             X = layer(X)
             print(layer.__class__.__name__, 'output shape:\t', X.shape)
+
+class RNNLMScratch(util.Classifier):
+    def __init__(self, rnn, vocab_size, lr=0.01):
+        super().__init__()
+        self.save_hyperparameters()
+        self.init_params()
+    
+    def init_params(self):
+        self.W_hq = nn.Parameter(
+            torch.randn(
+                self.rnn.num_hiddens, self.vocab_size) * self.rnn.sigma)
+        self.b_q = nn.Parameter(torch.zeros(self.vocab_size))
+
+    def training_step(self, batch):
+        l = self.loss(self(*batch[:-1]), batch[-1])
+        self.plot('ppl', torch.exp(l), train=True)
+        return l
+    
+    def validation_step(self, batch):
+        l = self.loss(self(*batch[:-1]), batch[-1])
+        self.plot('ppl', torch.exp(l), train=False) 
+    
+    def one_hot(self, X):
+        return F.one_hot(X.T, self.vocab_size).type(torch.float32)
+
+
+    def output_layer(self, rnn_outputs):
+        outputs = [torch.matmul(H, self.W_hq) + self.b_q for H in rnn_outputs]
+        return torch.stack(outputs, 1)
+
+
+    def forward(self, X, state=None):
+        embs = self.one_hot(X)
+        rnn_outputs, _ = self.rnn(embs, state)
+        return self.output_layer(rnn_outputs)
+
+class RNNScratch(util.Module):
+    def __init__(self, num_inputs, num_hiddens, sigma=0.01):
+        super().__init__()
+        self.save_hyperparameters()
+        self.W_xh = nn.Parameter(
+            torch.randn(num_inputs, num_hiddens) * sigma)
+        self.W_hh = nn.Parameter(
+            torch.randn(num_hiddens, num_hiddens) * sigma)
+        self.b_h = nn.Parameter(torch.zeros(num_hiddens))
+    def forward(self, inputs, state=None):
+        if state is None:
+            state = torch.zeros((inputs.shape[1], self.num_hiddens), device=inputs.device)
+        else:
+            state, = state
+        outputs = []
+        for X in inputs:
+            state = torch.tanh(torch.matmul(X, self.W_xh) + torch.matmul(state, self.W_hh) + self.b_h)
+            outputs.append(state)
+        return outputs, state
